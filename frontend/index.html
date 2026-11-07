@@ -71,6 +71,17 @@
       white-space: nowrap;
     }
     #status.ok { background: var(--orange-soft); color: var(--orange-dark); }
+    #new-chat {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #new-chat:hover { border-color: var(--orange); color: var(--orange-dark); }
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -160,6 +171,7 @@
         <p>Answers about ISO/IEC 27001:2022, with sources</p>
       </div>
       <span id="status">connecting…</span>
+      <button type="button" id="new-chat" title="Start a new conversation">New chat</button>
     </header>
 
     <div id="messages" aria-live="polite"></div>
@@ -204,7 +216,12 @@
       }
     }
 
-    function addMessage(text, who, data = null) {
+    // Conversation so far, sent with each question so follow-ups make sense.
+    let history = [];
+
+    function scrollDown() { messages.scrollTop = messages.scrollHeight; }
+
+    function addMessage(text, who) {
       const msg = document.createElement("div");
       msg.className = "msg " + who;
       const bubble = document.createElement("div");
@@ -212,61 +229,104 @@
       if (who === "bot") appendWithCitations(bubble, text);
       else bubble.textContent = text;
       msg.appendChild(bubble);
-
-      if (data && NOTES[data.mode]) {
-        const note = document.createElement("div");
-        note.className = "note";
-        note.textContent = NOTES[data.mode];
-        msg.appendChild(note);
-      }
-
-      if (data && data.sources && data.sources.length) {
-        const details = document.createElement("details");
-        const summary = document.createElement("summary");
-        const controls = data.sources.map(s => s.control).filter(Boolean);
-        summary.textContent = "Sources" + (controls.length ? ": " + controls.join(", ") : "");
-        details.appendChild(summary);
-        for (const s of data.sources) {
-          const box = document.createElement("div");
-          box.className = "source";
-          box.textContent = `[${s.id}] ${s.text}`;
-          details.appendChild(box);
-        }
-        msg.appendChild(details);
-      }
-
       messages.appendChild(msg);
-      messages.scrollTop = messages.scrollHeight;
+      scrollDown();
       return msg;
+    }
+
+    function setBubbleText(msg, text) {
+      const bubble = msg.querySelector(".bubble");
+      bubble.classList.remove("loading");
+      bubble.replaceChildren();
+      appendWithCitations(bubble, text);
+      scrollDown();
+    }
+
+    function addNote(msg, mode) {
+      if (!NOTES[mode]) return;
+      const note = document.createElement("div");
+      note.className = "note";
+      note.textContent = NOTES[mode];
+      msg.appendChild(note);
+    }
+
+    function addSources(msg, sources) {
+      if (!sources || !sources.length) return;
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      const controls = sources.map(s => s.control).filter(Boolean);
+      summary.textContent = "Sources" + (controls.length ? ": " + controls.join(", ") : "");
+      details.appendChild(summary);
+      for (const s of sources) {
+        const box = document.createElement("div");
+        box.className = "source";
+        box.textContent = `[${s.id}] ${s.text}`;
+        details.appendChild(box);
+      }
+      msg.appendChild(details);
+    }
+
+    // Reads the Server-Sent Events stream from /api/chat and calls onEvent
+    // for each complete "event: ...\ndata: ..." block.
+    async function readEvents(res, onEvent) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let end;
+        while ((end = buffer.indexOf("\n\n")) !== -1) {
+          const block = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          const type = (block.match(/^event: (.*)$/m) || [])[1];
+          const data = (block.match(/^data: (.*)$/m) || [])[1];
+          if (type && data) onEvent(type, JSON.parse(data));
+        }
+      }
     }
 
     async function ask(question) {
       addMessage(question, "user");
       input.disabled = sendBtn.disabled = true;
-      const loading = addMessage("Thinking…", "bot");
-      loading.querySelector(".bubble").classList.add("loading");
+      const reply = addMessage("Thinking…", "bot");
+      reply.querySelector(".bubble").classList.add("loading");
 
+      let answer = "";
+      let sources = [];
       try {
-        const res = await fetch("/api/ask", {
+        const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question }),
+          body: JSON.stringify({ message: question, history }),
         });
-        loading.remove();
         if (!res.ok) {
-          addMessage(`Something went wrong (error ${res.status}).`, "bot");
+          setBubbleText(reply, `Something went wrong (error ${res.status}).`);
           return;
         }
-        const data = await res.json();
-        addMessage(data.answer, "bot", data);
+        await readEvents(res, (type, data) => {
+          if (type === "sources") sources = data.sources;
+          else if (type === "delta") { answer += data.text; setBubbleText(reply, answer); }
+          else if (type === "replace") { answer = data.text; setBubbleText(reply, answer); }
+          else if (type === "done") addNote(reply, data.mode);
+        });
+        addSources(reply, sources);
+        history.push({ role: "user", content: question }, { role: "assistant", content: answer });
       } catch (err) {
-        loading.remove();
-        addMessage("Can't reach the server. Is it running?", "bot");
+        setBubbleText(reply, "Can't reach the server. Is it running?");
       } finally {
         input.disabled = sendBtn.disabled = false;
         input.focus();
       }
     }
+
+    document.getElementById("new-chat").addEventListener("click", () => {
+      history = [];
+      messages.replaceChildren();
+      addMessage(GREETING, "bot");
+      input.focus();
+    });
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -288,7 +348,8 @@
       })
       .catch(() => { statusEl.textContent = "Offline"; });
 
-    addMessage("Hi! Ask me anything about ISO 27001:2022 and I'll answer with the controls I used.", "bot");
+    const GREETING = "Hi! Ask me anything about ISO 27001:2022 and I'll answer with the controls I used. You can ask follow-up questions too.";
+    addMessage(GREETING, "bot");
     input.focus();
   </script>
 </body>
