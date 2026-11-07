@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ISO 27001 Assistant</title>
+  <style>
+    :root {
+      --orange: #ea580c;
+      --orange-dark: #c2410c;
+      --orange-soft: #fff1e6;
+      --bg: #fff8f2;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #f3e1d3;
+      --bot: #f6f4f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .chat {
+      width: 100%;
+      max-width: 760px;
+      height: 92vh;
+      margin: 0 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 12px 40px rgba(234, 88, 12, 0.08);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--orange);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    header h1 { margin: 0; font-size: 1.05rem; }
+    header p { margin: 2px 0 0; font-size: 0.78rem; color: var(--muted); }
+    #status {
+      margin-left: auto;
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--bot);
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    #status.ok { background: var(--orange-soft); color: var(--orange-dark); }
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .msg { display: flex; flex-direction: column; max-width: 85%; }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.bot { align-self: flex-start; }
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 16px;
+      line-height: 1.5;
+      font-size: 0.93rem;
+      white-space: pre-wrap;
+    }
+    .user .bubble { background: var(--orange); color: #fff; border-bottom-right-radius: 4px; }
+    .bot .bubble { background: var(--bot); border-bottom-left-radius: 4px; }
+    .bubble.loading { color: var(--muted); font-style: italic; }
+    .cite { color: var(--orange-dark); font-weight: 600; font-size: 0.8em; }
+    details { margin-top: 6px; font-size: 0.8rem; color: var(--muted); }
+    summary { cursor: pointer; }
+    summary:hover { color: var(--orange-dark); }
+    .source {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-left: 3px solid var(--orange);
+      background: var(--orange-soft);
+      border-radius: 0 8px 8px 0;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+    .note { margin-top: 4px; font-size: 0.72rem; color: var(--muted); }
+    .examples {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 20px 12px;
+    }
+    .examples button {
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .examples button:hover { border-color: var(--orange); color: var(--orange-dark); }
+    form {
+      display: flex;
+      gap: 10px;
+      padding: 14px 20px 18px;
+      border-top: 1px solid var(--border);
+    }
+    input {
+      flex: 1;
+      min-width: 0;
+      padding: 11px 16px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 0.93rem;
+      outline: none;
+    }
+    input:focus { border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+    form button {
+      padding: 0 20px;
+      border: none;
+      border-radius: 999px;
+      background: var(--orange);
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    form button:hover { background: var(--orange-dark); }
+    button:disabled { opacity: 0.5; cursor: default; }
+  </style>
+</head>
+<body>
+  <main class="chat">
+    <header>
+      <div class="logo">ISO</div>
+      <div>
+        <h1>ISO 27001 Assistant</h1>
+        <p>Answers about ISO/IEC 27001:2022, with sources</p>
+      </div>
+      <span id="status">connecting…</span>
+    </header>
+
+    <div id="messages" aria-live="polite"></div>
+
+    <div class="examples">
+      <button type="button">Do we need MFA?</button>
+      <button type="button">What is a clean desk policy?</button>
+      <button type="button">What changed in the 2022 version?</button>
+    </div>
+
+    <form id="chat-form">
+      <input id="question" type="text" maxlength="1000" autocomplete="off"
+             placeholder="Ask about an ISO 27001 control…" />
+      <button type="submit">Send</button>
+    </form>
+  </main>
+
+  <script>
+    const messages = document.getElementById("messages");
+    const form = document.getElementById("chat-form");
+    const input = document.getElementById("question");
+    const sendBtn = form.querySelector("button");
+    const statusEl = document.getElementById("status");
+
+    const NOTES = {
+      "search-only": "No API key: showing the closest matching section",
+      "fallback": "Claude unavailable: showing the closest matching section",
+    };
+
+    // Text is added with text nodes only (never innerHTML), so neither the
+    // user's input nor the model's answer can inject HTML into the page.
+    function appendWithCitations(el, text) {
+      for (const part of text.split(/(\[\d+\])/g)) {
+        if (/^\[\d+\]$/.test(part)) {
+          const span = document.createElement("span");
+          span.className = "cite";
+          span.textContent = part;
+          el.appendChild(span);
+        } else {
+          el.appendChild(document.createTextNode(part));
+        }
+      }
+    }
+
+    function addMessage(text, who, data = null) {
+      const msg = document.createElement("div");
+      msg.className = "msg " + who;
+      const bubble = document.createElement("div");
+      bubble.className = "bubble";
+      if (who === "bot") appendWithCitations(bubble, text);
+      else bubble.textContent = text;
+      msg.appendChild(bubble);
+
+      if (data && NOTES[data.mode]) {
+        const note = document.createElement("div");
+        note.className = "note";
+        note.textContent = NOTES[data.mode];
+        msg.appendChild(note);
+      }
+
+      if (data && data.sources && data.sources.length) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        const controls = data.sources.map(s => s.control).filter(Boolean);
+        summary.textContent = "Sources" + (controls.length ? ": " + controls.join(", ") : "");
+        details.appendChild(summary);
+        for (const s of data.sources) {
+          const box = document.createElement("div");
+          box.className = "source";
+          box.textContent = `[${s.id}] ${s.text}`;
+          details.appendChild(box);
+        }
+        msg.appendChild(details);
+      }
+
+      messages.appendChild(msg);
+      messages.scrollTop = messages.scrollHeight;
+      return msg;
+    }
+
+    async function ask(question) {
+      addMessage(question, "user");
+      input.disabled = sendBtn.disabled = true;
+      const loading = addMessage("Thinking…", "bot");
+      loading.querySelector(".bubble").classList.add("loading");
+
+      try {
+        const res = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+        loading.remove();
+        if (!res.ok) {
+          addMessage(`Something went wrong (error ${res.status}).`, "bot");
+          return;
+        }
+        const data = await res.json();
+        addMessage(data.answer, "bot", data);
+      } catch (err) {
+        loading.remove();
+        addMessage("Can't reach the server. Is it running?", "bot");
+      } finally {
+        input.disabled = sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = input.value.trim();
+      if (!q) return;
+      input.value = "";
+      ask(q);
+    });
+
+    document.querySelectorAll(".examples button").forEach(btn =>
+      btn.addEventListener("click", () => ask(btn.textContent))
+    );
+
+    fetch("/api/health")
+      .then(r => r.json())
+      .then(d => {
+        statusEl.textContent = d.mode === "claude" ? "Claude" : "Search only";
+        if (d.mode === "claude") statusEl.className = "ok";
+      })
+      .catch(() => { statusEl.textContent = "Offline"; });
+
+    addMessage("Hi! Ask me anything about ISO 27001:2022 and I'll answer with the controls I used.", "bot");
+    input.focus();
+  </script>
+</body>
+</html>
